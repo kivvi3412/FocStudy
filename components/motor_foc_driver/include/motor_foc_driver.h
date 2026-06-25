@@ -57,6 +57,7 @@ private:
     int pole_pairs_ = 0;
     float as5600_direction_ = -1.0;  // 1: 正转, -1: 反转
     bool foc_is_enabled_ = false;
+    volatile bool calibrating_ = false;  // 校准期间跳过 FOC 循环
 
     float zero_electric_angle_ = 0;
     foc_dq_coord_t dq_out_{};   // 最大值为FOC_MCPWM_PERIOD / 2
@@ -64,12 +65,17 @@ private:
     foc_uvw_coord_t uvw_out_{};
     int uvw_duty_[3]{};  // 电机PWM占空比
     inverter_handle_t inverter_{};
-    esp_timer_handle_t foc_timer{};
+    volatile uint32_t mcpwm_div_counter_{};  // MCPWM 回调分频计数器
     TaskHandle_t foc_task_handle_; // FOC计算任务的句柄, 用于任务通知
 
     static float _normalize_angle(float angle);   // 角度归一化
-    float _get_electrical_angle();   // 获取电机电角度
-    static void _timer_callback_static(void *args);   // 定时器回调函数
+    float _get_electrical_angle();   // 获取电机电角度（使用缓存角度 + 速度补偿）
+
+    // MCPWM on_full 回调（替代 esp_timer，精确同步 PWM 波形）
+    static bool _mcpwm_on_full_cb(mcpwm_timer_handle_t timer,
+                                  const mcpwm_timer_event_data_t *edata,
+                                  void *user_ctx);
+
     static void _foc_task_static(void *arg);
     void _set_dq_out_loop();   // 设置DQ坐标 (力矩控制) 循环
     void _set_dq_out_exec(float Ud, float Uq, float e_theta_rad);    // 设置DQ坐标 (力矩控制) 执行

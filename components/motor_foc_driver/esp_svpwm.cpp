@@ -104,6 +104,12 @@ esp_err_t svpwm_inverter_start(inverter_handle_t handle, mcpwm_timer_start_stop_
     return ESP_OK;
 }
 
+esp_err_t svpwm_inverter_register_cbs(inverter_handle_t handle, const mcpwm_timer_event_callbacks_t *event, void *user_ctx) {
+    ESP_RETURN_ON_FALSE(handle && event, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_ERROR(mcpwm_timer_register_event_callbacks(handle->timer, event, user_ctx), TAG, "register callbacks failed");
+    return ESP_OK;
+}
+
 esp_err_t svpwm_inverter_set_duty(inverter_handle_t handle, uint16_t u, uint16_t v, uint16_t w) {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
 

@@ -25,7 +25,8 @@
 #define FOC_MCPWM_W1_GPIO               GPIO_NUM_14
 #define FOC_DRV_EN_GPIO                 GPIO_NUM_12
 
-#define FOC_CALC_PERIOD                 200                // 电机控制周期，单位(us)
+#define FOC_MCPWM_SYNC_DIVIDER          4                  // FOC每N个PWM周期运行一次 (20kHz/4 = 5kHz)
+#define FOC_CALC_PERIOD                 200                // 实际FOC周期 = DIVIDER * 50µs = 200µs
 #define FOC_MCPWM_TIMER_RESOLUTION_HZ   80000000
 #define FOC_MCPWM_PERIOD                2000                // 最大力矩为 FOC_MCPWM_PERIOD / 2
 #define FOC_MCPWM_OUTPUT_LIMIT          (FOC_MCPWM_PERIOD / 2.0 - 1)

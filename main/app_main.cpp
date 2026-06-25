@@ -22,5 +22,5 @@ extern "C" void app_main() {
 
     foc_driver->bsp_bridge_driver_enable(true);
     foc_driver->foc_motor_calibrate();
-    foc_driver->set_dq(0, 1000);
+    foc_driver->set_dq(0, 700);
 }

@@ -58,6 +58,20 @@ esp_err_t svpwm_inverter_start(inverter_handle_t handle, mcpwm_timer_start_stop_
 esp_err_t svpwm_inverter_set_duty(inverter_handle_t handle, uint16_t u, uint16_t v, uint16_t w);
 
 /**
+ * @brief register update callbacks for a mcpwm peripheral
+ *
+ * @param handle    svpwm invertor handler
+ * @param event     callbacks config (e.g. on_full, on_empty, on_stop)
+ * @param user_ctx  pointer to user data to be passed to callbacks
+ *
+ * @return  - ESP_OK: register callbacks successfully
+ *          - ESP_ERR_INVALID_ARG: NULL arguments
+ *
+ * @note Must be called BEFORE svpwm_inverter_start()
+ */
+esp_err_t svpwm_inverter_register_cbs(inverter_handle_t handle, const mcpwm_timer_event_callbacks_t *event, void *user_ctx);
+
+/**
  * @brief free a svpwm invertor
  *
  * @param handle  svpwm invertor handler
