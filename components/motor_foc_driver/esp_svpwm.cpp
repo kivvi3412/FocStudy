@@ -36,41 +36,31 @@ esp_err_t svpwm_new_inverter(const inverter_config_t *config, inverter_handle_t 
     auto *svpwm_dev = (mcpwm_svpwm_ctx_t *) calloc(1, sizeof(mcpwm_svpwm_ctx_t));
     if (!svpwm_dev) {
         ESP_LOGE(TAG, "no memory");
-        return ESP_ERR_NO_MEM; // 内存分配失败，返回错误
+        return ESP_ERR_NO_MEM;  // 内存分配失败，返回错误
     }
 
     // 创建 MCPWM 定时器，并将其句柄存储在上下文结构体中
-    ESP_GOTO_ON_ERROR(
-        mcpwm_new_timer(&config->timer_config, &svpwm_dev->timer),
-        err, TAG, "Create MCPWM timer failed"
-    );
+    ESP_GOTO_ON_ERROR(mcpwm_new_timer(&config->timer_config, &svpwm_dev->timer), err, TAG, "Create MCPWM timer failed");
 
     // 为每个相位创建 MCPWM 运算器，并将其连接到同一个定时器
     for (int i = 0; i < 3; i++) {
         // 创建 MCPWM 运算器
-        ESP_GOTO_ON_ERROR(
-            mcpwm_new_operator(&config->operator_config, &svpwm_dev->operators[i]),
-            err, TAG, "Create MCPWM operator failed"
-        );
+        ESP_GOTO_ON_ERROR(mcpwm_new_operator(&config->operator_config, &svpwm_dev->operators[i]), err, TAG,
+                          "Create MCPWM operator failed");
         // 将运算器连接到定时器
-        ESP_GOTO_ON_ERROR(
-            mcpwm_operator_connect_timer(svpwm_dev->operators[i], svpwm_dev->timer),
-            err, TAG, "Connect operators to the same timer failed"
-        );
+        ESP_GOTO_ON_ERROR(mcpwm_operator_connect_timer(svpwm_dev->operators[i], svpwm_dev->timer), err, TAG,
+                          "Connect operators to the same timer failed");
     }
 
     // 为每个相位创建 MCPWM 比较器，并初始化比较值为0
     for (int i = 0; i < 3; i++) {
         // 创建 MCPWM 比较器
         ESP_GOTO_ON_ERROR(
-            mcpwm_new_comparator(svpwm_dev->operators[i], &config->compare_config, &svpwm_dev->comparators[i]),
-            err, TAG, "Create comparators failed"
-        );
+                mcpwm_new_comparator(svpwm_dev->operators[i], &config->compare_config, &svpwm_dev->comparators[i]), err,
+                TAG, "Create comparators failed");
         // 设置比较器的比较值为0
-        ESP_GOTO_ON_ERROR(
-            mcpwm_comparator_set_compare_value(svpwm_dev->comparators[i], 0),
-            err, TAG, "Set comparators failed"
-        );
+        ESP_GOTO_ON_ERROR(mcpwm_comparator_set_compare_value(svpwm_dev->comparators[i], 0), err, TAG,
+                          "Set comparators failed");
     }
 
     // 为每个相位的上桥臂创建 MCPWM 生成器
@@ -78,36 +68,31 @@ esp_err_t svpwm_new_inverter(const inverter_config_t *config, inverter_handle_t 
         // 设置生成器的 GPIO 引脚号
         gen_config.gen_gpio_num = config->gen_gpios[i];
         // 创建 MCPWM 生成器，并将其句柄存储在上下文结构体中
-        ESP_GOTO_ON_ERROR(
-            mcpwm_new_generator(svpwm_dev->operators[i], &gen_config, &svpwm_dev->generators[i]),
-            err, TAG, "Create PWM generator pin %d failed", gen_config.gen_gpio_num
-        );
+        ESP_GOTO_ON_ERROR(mcpwm_new_generator(svpwm_dev->operators[i], &gen_config, &svpwm_dev->generators[i]), err,
+                          TAG, "Create PWM generator pin %d failed", gen_config.gen_gpio_num);
     }
 
     // 为每个相位的上桥臂生成器设置比较事件的动作
     for (int i = 0; i < 3; i++) {
-        ESP_GOTO_ON_ERROR(
-            mcpwm_generator_set_action_on_compare_event(
-                svpwm_dev->generators[i],
-                MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, svpwm_dev->comparators[i],MCPWM_GEN_ACTION_LOW)
-            ),
-            err, TAG, "Set generator UP action failed"
-        );
-        ESP_GOTO_ON_ERROR(
-            mcpwm_generator_set_action_on_compare_event(
-                svpwm_dev->generators[i],
-                MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_DOWN, svpwm_dev->comparators[i],
-                    MCPWM_GEN_ACTION_HIGH)
-            ),
-            err, TAG, "Set generator DOWN action failed"
-        );
+        ESP_GOTO_ON_ERROR(mcpwm_generator_set_action_on_compare_event(
+                                  svpwm_dev->generators[i],
+                                  MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP,
+                                                                 svpwm_dev->comparators[i],
+                                                                 MCPWM_GEN_ACTION_LOW)),
+                          err, TAG, "Set generator up-count action failed");
+        ESP_GOTO_ON_ERROR(mcpwm_generator_set_action_on_compare_event(
+                                  svpwm_dev->generators[i],
+                                  MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_DOWN,
+                                                                 svpwm_dev->comparators[i],
+                                                                 MCPWM_GEN_ACTION_HIGH)),
+                          err, TAG, "Set generator down-count action failed");
     }
 
     *ret_inverter = svpwm_dev;
-    return ESP_OK; // 成功返回
-err:
-    free(svpwm_dev); // 释放已分配的内存
-    return ret; // 返回错误码
+    return ESP_OK;  // 成功返回
+    err:
+    free(svpwm_dev);  // 释放已分配的内存
+    return ret;        // 返回错误码
 }
 
 esp_err_t svpwm_inverter_start(inverter_handle_t handle, mcpwm_timer_start_stop_cmd_t command) {
