@@ -1,1 +1,0 @@
-while true; do pkill -9 -f HydraRenderingService; sleep 0.3; done
