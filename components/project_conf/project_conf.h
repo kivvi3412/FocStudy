@@ -5,33 +5,37 @@
 #ifndef FOCKNOB_PROJECT_CONF_H
 #define FOCKNOB_PROJECT_CONF_H
 
-#define IIC_MASTER_NUM                  I2C_NUM_0         // IIC port number for master
-#define IIC_MASTER_FREQ_HZ              400000            // IIC master clock frequency
-#define IIC_MASTER_SDA0_IO              GPIO_NUM_19
-#define IIC_MASTER_SCL0_IO              GPIO_NUM_18
-#define IIC_MASTER_SDA1_IO              GPIO_NUM_23
-#define IIC_MASTER_SCL1_IO              GPIO_NUM_5
+#define FOC_DRV_EN_GPIO GPIO_NUM_12
 
-#define IIC_AS5600_ADDR                 0x36
-#define IIC_AS5600_RAW_ANGLE_REG        0x0C
-#define IIC_AS5600_RESOLUTION           4096
+// Motor 0
+#define SPI_MT6816_MOSI_IO GPIO_NUM_22
+#define SPI_MT6816_MISO_IO GPIO_NUM_18
+#define SPI_MT6816_SCK_IO GPIO_NUM_19
+#define SPI_MT6816_CSN_IO GPIO_NUM_4
+#define SPI_MT6816_FREQ_HZ 5000000       // 5MHz SPI
+#define SPI_MT6816_RESOLUTION 16384       // 14-bit
+#define MT6816_INTERNAL_DELAY_S 0.000002f // MT6816 固有延迟 ~2µs
+#define FOC_MOTOR_POLE_PAIRS 14
+#define FOC_MCPWM_U0_GPIO GPIO_NUM_32
+#define FOC_MCPWM_V0_GPIO GPIO_NUM_33
+#define FOC_MCPWM_W0_GPIO GPIO_NUM_25
 
-#define FOC_MOTOR_POLE_PAIRS            7
-#define FOC_MCPWM_U0_GPIO               GPIO_NUM_32
-#define FOC_MCPWM_V0_GPIO               GPIO_NUM_33
-#define FOC_MCPWM_W0_GPIO               GPIO_NUM_25
-#define FOC_MCPWM_U1_GPIO               GPIO_NUM_26
-#define FOC_MCPWM_V1_GPIO               GPIO_NUM_27
-#define FOC_MCPWM_W1_GPIO               GPIO_NUM_14
-#define FOC_DRV_EN_GPIO                 GPIO_NUM_12
+// Motor 1
+#define IIC_MASTER_NUM I2C_NUM_0
+#define IIC_MASTER_FREQ_HZ 400000
+#define IIC_MASTER_SDA1_IO GPIO_NUM_23
+#define IIC_MASTER_SCL1_IO GPIO_NUM_5
+#define IIC_AS5600_ADDR 0x36
+#define IIC_AS5600_RAW_ANGLE_REG 0x0C
+#define IIC_AS5600_RESOLUTION 4096
+#define FOC_MCPWM_U1_GPIO GPIO_NUM_26
+#define FOC_MCPWM_V1_GPIO GPIO_NUM_27
+#define FOC_MCPWM_W1_GPIO GPIO_NUM_14
 
-#define FOC_MCPWM_SYNC_DIVIDER          4                  // FOC每N个PWM周期运行一次 (20kHz/4 = 5kHz)
-#define FOC_CALC_PERIOD                 200                // 实际FOC周期 = DIVIDER * 50µs = 200µs
-#define FOC_MCPWM_TIMER_RESOLUTION_HZ   80000000
-#define FOC_MCPWM_PERIOD                2000                // 最大力矩为 FOC_MCPWM_PERIOD / 2
-#define FOC_MCPWM_OUTPUT_LIMIT          (FOC_MCPWM_PERIOD / 2.0 - 1)
-#define FOC_MCPWM_CALIBRATE_VOLTAGE     (FOC_MCPWM_PERIOD / 10.0)
-#define FOC_MCPWM_STATIC_FRIC_TORQUE    28.0                // 电机启动静摩擦力矩
-#define FOC_LOW_PASS_FILTER_ALPHA       0.3
+#define FOC_MCPWM_TIMER_RESOLUTION_HZ 40000000
+#define FOC_MCPWM_PERIOD 2000 // 40MHz / (2000) = 20kHz (UP-DOWN 中央对齐)
+#define FOC_MCPWM_OUTPUT_LIMIT (FOC_MCPWM_PERIOD / 2) // Ud/Uq 最大值 = 1000
+#define FOC_MCPWM_CALIBRATE_VOLTAGE (FOC_MCPWM_PERIOD / 20) // 校准电压 = 100
+#define FOC_LOW_PASS_FILTER_ALPHA 0.5f // 低通滤波: 0.5*当前 + 0.5*过去
 
-#endif //FOCKNOB_PROJECT_CONF_H
+#endif // FOCKNOB_PROJECT_CONF_H

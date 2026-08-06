@@ -10,16 +10,10 @@
 
 class DebugConsole {
 public:
-    enum class Mode {
-        Torque,
-        Velocity
-    };
-    explicit DebugConsole(float parm_list[6]); //需要修改的6个全局变量
-    
-    Mode current_mode = Mode::Torque;
+    explicit DebugConsole(float parm_list[2]); // Ud, Uq 两个参数
 
 private:
-    static int set_params_cmd(int argc, char **argv); //设置参数的命令
+    static int set_params_cmd(int argc, char **argv);
 };
 
 
