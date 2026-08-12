@@ -11,9 +11,11 @@
 #include "project_conf.h"
 #include <cmath>
 
-#ifndef M_TWOPI
-#define M_TWOPI (2.0f * (float)M_PI)
-#endif
+// 纯 float 常量，避免任何隐式 double 提升
+// （<cmath> 的 M_PI 是 double，参与运算会触发 __extendsfdf2 + __muldf3 软浮点链）
+static constexpr float PI_F = 3.14159265358979323846f;
+static constexpr float TWOPI_F = 2.0f * PI_F;
+static constexpr float ANGLE_TO_RAD = TWOPI_F / 65536.0f; // raw * ANGLE_TO_RAD = 单次 float 乘法
 
 static const char *TAG = "MT6835";
 
@@ -78,6 +80,11 @@ MT6835::MT6835() {
     bus_cfg.max_transfer_sz = 8; // 连读最多 6 字节 (48-bit 事务)
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_DISABLED));
 
+    // 强行开启 MISO 的内部上拉电阻。
+    // 如果编码器断线，MISO 将读取为全 0xFF。
+    // 0xFF 的 CRC 计算结果是 0x93，不等于 0xFF，因此必定触发 CRC 失败停机保护！
+    gpio_pullup_en((gpio_num_t) SPI_MT6835_MISO_IO);
+
     // SPI Mode 3: CPOL=1 (SCK空闲高), CPHA=1 (上升沿采样)
     spi_device_interface_config_t dev_cfg = {};
     dev_cfg.clock_speed_hz = SPI_MT6835_FREQ_HZ;
@@ -129,7 +136,7 @@ void MT6835::spi_burst_read(uint8_t *rx4) {
     //   byte0 = 1010_0000 = 0xA0  (CMD | ADDR[11:8])
     //   byte1 = 0000_0011 = 0x03  (ADDR[7:0])
     //   byte2~5 = dummy (时钟供 MISO 输出数据)
-    uint8_t tx[6] = {0xA0, 0x03, 0x00, 0x00, 0x00, 0x00};
+    uint8_t tx[8] = {0xA0, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     spi_ll_write_buffer(spi_hw_, tx, 48);
 
     // 清除上次事务的完成标志
@@ -139,11 +146,12 @@ void MT6835::spi_burst_read(uint8_t *rx4) {
     // CSN 下降沿锁存 MT6835 内部角度寄存器 0x003~0x006
     GPIO.out_w1tc = cs_bit_mask_;
 
-    // CS 建立时间 ~150ns (24 NOP @ 160MHz)
+    // CS 建立时间 ~150ns (36 NOP @ 240MHz)
     __asm__ __volatile__(
-        "nop; nop; nop; nop; nop; nop; nop; nop;"
-        "nop; nop; nop; nop; nop; nop; nop; nop;"
-        "nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
         ::: "memory"
     );
 
@@ -153,6 +161,17 @@ void MT6835::spi_burst_read(uint8_t *rx4) {
     // 忙等完成
     while (!spi_ll_usr_is_done(spi_hw_)) {
     }
+
+    // CS 保持时间要求: TH >= 0.5 * TSCK (MT6835 规格书)
+    // 5MHz SPI -> TSCK = 200ns -> 至少需 100ns 保持时间
+    // 36 个 NOP 在 240MHz 约等于 150ns，确保满足保持时间，防止读取错位或芯片死机
+    __asm__ __volatile__(
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
+        ::: "memory"
+    );
 
     // CS 拉高（结束连读，只读取一组数据）
     GPIO.out_w1ts = cs_bit_mask_;
@@ -183,7 +202,10 @@ bool MT6835::read_angle(uint16_t &out_angle) {
     // CRC 多项式 X⁸+X²+X+1, ANGLE[20] (data[0] MSB) 最先移位进入
     uint8_t crc_calc = crc8_calc(data, 3);
     if (crc_calc != data[3]) {
-        // CRC 失败：数据损坏或硬件断线 (全 0xFF 时 CRC 必然不匹配)
+        // 记录开机以来的CRC校验错误次数
+        if (consecutive_errors_ < FAULT_THRESHOLD) {
+            total_crc_errors_++;
+        }
         consecutive_errors_++;
         if (consecutive_errors_ >= FAULT_THRESHOLD && fault_cb_ && !fault_triggered_) {
             fault_triggered_ = true;
@@ -222,34 +244,29 @@ bool MT6835::read_angle(uint16_t &out_angle) {
 // ============================================================================
 // 速度估算 + 低通滤波
 // ============================================================================
-void MT6835::update_velocity(float current_angle, int64_t now_us) {
+void MT6835::update_velocity(float current_angle) {
     if (first_read_) {
         prev_angle_ = current_angle;
-        prev_time_us_ = now_us;
         first_read_ = false;
         return;
     }
 
     // 计算角度增量，处理 0/2π 边界跨越
     float delta = current_angle - prev_angle_;
-    if (delta > (float) M_PI)
-        delta -= M_TWOPI;
-    else if (delta < -(float) M_PI)
-        delta += M_TWOPI;
+    if (delta > PI_F)
+        delta -= TWOPI_F;
+    else if (delta < -PI_F)
+        delta += TWOPI_F;
 
-    // 使用真实时间间隔计算速度（不假设固定周期）
-    float dt = (float) (now_us - prev_time_us_) * 1e-6f;
-
-    if (dt > 1e-6f) {
-        // 防止除零
-        velocity_ = delta / dt;
-        // 低通滤波: alpha * 当前 + (1-alpha) * 上次
-        velocity_filtered_ =
-                FOC_LOW_PASS_FILTER_ALPHA * velocity_ + (1.0f - FOC_LOW_PASS_FILTER_ALPHA) * velocity_filtered_;
-    }
+    // FOC 与 MCPWM 硬件同步，dt 固定为 50µs (20kHz)
+    // 用乘法替代除法，消灭 __divsf3 flash 调用
+    static constexpr float INV_DT = 1.0f / (FOC_MCPWM_PERIOD / (float) FOC_MCPWM_TIMER_RESOLUTION_HZ);
+    // INV_DT = 1/0.00005 = 20000.0f
+    velocity_ = delta * INV_DT;
+    velocity_filtered_ =
+            FOC_LOW_PASS_FILTER_ALPHA * velocity_ + (1.0f - FOC_LOW_PASS_FILTER_ALPHA) * velocity_filtered_;
 
     prev_angle_ = current_angle;
-    prev_time_us_ = now_us;
 }
 
 // ============================================================================
@@ -260,7 +277,7 @@ float MT6835::read_angle_no_update() {
     if (!read_angle(raw)) {
         return NAN;
     }
-    return (float) raw * M_TWOPI / (float) SPI_MT6835_RESOLUTION;
+    return (float) raw * ANGLE_TO_RAD;
 }
 
 float MT6835::read_angle_raw() {
@@ -268,10 +285,9 @@ float MT6835::read_angle_raw() {
     if (!read_angle(raw)) {
         return NAN;
     }
-    float angle = (float) raw * M_TWOPI / (float) SPI_MT6835_RESOLUTION;
+    float angle = (float) raw * ANGLE_TO_RAD;
 
-    int64_t now_us = esp_timer_get_time();
-    update_velocity(angle, now_us);
+    update_velocity(angle);
 
     return angle;
 }
@@ -281,7 +297,7 @@ float MT6835::read_electrical_angle_compensated(int pole_pairs, float direction,
     if (std::isnan(mech_angle)) {
         return NAN;
     }
-    // 谷底采样 1T 补偿（计数器归零时采样，不再是 1.5T）
+    // 采样→生效间隔 = 1T，加上 MT6835 内部延迟 10µs
     constexpr float mcpwm_period_s = FOC_MCPWM_PERIOD / (float) FOC_MCPWM_TIMER_RESOLUTION_HZ;
     constexpr float total_delay_s = MT6835_INTERNAL_DELAY_S + mcpwm_period_s;
     float compensated_mech = mech_angle + velocity_filtered_ * total_delay_s;

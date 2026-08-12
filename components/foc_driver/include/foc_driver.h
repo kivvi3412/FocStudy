@@ -86,8 +86,7 @@ private:
 
     static void IRAM_ATTR foc_task(void *arg);
 
-    /// 编码器故障回调（由 MT6835 在连续读取失败时调用）
-    static void encoder_fault_handler(void *ctx);
+    static void IRAM_ATTR encoder_fault_handler(void *ctx);
 };
 
 #endif // FOC_DRIVER_H

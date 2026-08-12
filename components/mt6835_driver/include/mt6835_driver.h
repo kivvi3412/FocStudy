@@ -57,7 +57,7 @@ public:
      * @brief 读取延迟补偿后的电角度（弧度）
      *
      * 补偿算法:
-     *   补偿后角度 = 读取角度 + (编码器延迟 10µs + MCPWM 周期 × 1T) × 滤波角速度
+     *   补偿后角度 = 读取角度 + (编码器延迟 10µs + MCPWM 周期 × 0.5T) × 滤波角速度
      *   电角度 = 补偿后角度 × 极对数 × 方向 - 零电角度偏移
      *
      * @param pole_pairs   电机极对数
@@ -87,6 +87,13 @@ public:
      */
     [[nodiscard]] bool IRAM_ATTR has_undervoltage_warning() const { return undervoltage_warning_; }
 
+    /**
+     * @brief 获取开机以来 CRC 校验错误的总次数
+     *
+     * 如果连续错误超过阈值（断线），则不再增加此计数。
+     */
+    [[nodiscard]] uint32_t IRAM_ATTR get_total_crc_errors() const { return total_crc_errors_; }
+
 private:
     spi_device_handle_t spi_dev_{};
     gpio_num_t cs_pin_{}; // 手动控制的 CS 引脚
@@ -94,7 +101,6 @@ private:
     uint32_t cs_bit_mask_{}; // CS GPIO 位掩码（用于直接寄存器写）
 
     float prev_angle_{}; // 上一次的机械角度（弧度）
-    int64_t prev_time_us_{}; // 上一次读取的时间戳（µs）
     float velocity_{}; // 即时角速度（弧度/秒）
     float velocity_filtered_{}; // 低通滤波后角速度
     bool no_mag_warning_{}; // 弱磁报警标志
@@ -104,6 +110,7 @@ private:
 
     /// 连续读取失败计数器及故障回调
     uint32_t consecutive_errors_{0};
+    uint32_t total_crc_errors_{0}; // 开机以来的 CRC 错误总数
     bool fault_triggered_{false};
     FaultCallback fault_cb_{nullptr};
     void *fault_cb_ctx_{nullptr};
@@ -139,7 +146,7 @@ private:
     /**
      * @brief 更新角速度和低通滤波
      */
-    void IRAM_ATTR update_velocity(float current_angle, int64_t now_us);
+    void IRAM_ATTR update_velocity(float current_angle);
 
     /**
      * @brief CRC8 计算 (多项式 X⁸+X²+X+1 = 0x07)
