@@ -5,7 +5,7 @@
 #ifndef FOC_DRIVER_H
 #define FOC_DRIVER_H
 
-#include "spi_mt6816.h"
+#include "mt6835_driver.h"
 #include "driver/mcpwm_prelude.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,12 +15,12 @@ class FocMotor {
 public:
     /**
      * @brief 构造函数，初始化 MCPWM 硬件和引脚
-     * @param encoder MT6816 编码器指针
+     * @param encoder MT6835 编码器指针
      * @param pole_pairs 电机极对数
      * @param u_gpio, v_gpio, w_gpio MCPWM 三相输出引脚
      * @param en_gpio 电机驱动使能引脚
      */
-    FocMotor(MT6816 *encoder, int pole_pairs, int u_gpio, int v_gpio, int w_gpio, int en_gpio);
+    FocMotor(MT6835 *encoder, int pole_pairs, int u_gpio, int v_gpio, int w_gpio, int en_gpio);
 
     /**
      * @brief 自动检测电机旋转方向和零电角度校准
@@ -55,7 +55,7 @@ public:
     float get_zero_electric_angle() const { return zero_electric_angle_; }
 
 private:
-    MT6816 *encoder_;
+    MT6835 *encoder_;
     int pole_pairs_;
     int en_gpio_;
 
@@ -81,10 +81,13 @@ private:
 
     static void IRAM_ATTR svpwm_calculate(float alpha, float beta, float *u, float *v, float *w);
 
-    static bool IRAM_ATTR mcpwm_on_empty_cb(
+    static bool IRAM_ATTR mcpwm_on_full_cb(
         mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx);
 
     static void IRAM_ATTR foc_task(void *arg);
+
+    /// 编码器故障回调（由 MT6835 在连续读取失败时调用）
+    static void encoder_fault_handler(void *ctx);
 };
 
 #endif // FOC_DRIVER_H

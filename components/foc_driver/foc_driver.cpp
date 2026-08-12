@@ -18,7 +18,7 @@ static const char *TAG = "FocMotor";
 #define SQRT3 1.7320508075688772935f
 #define _constrain(amt, low, high) ((amt) < (low) ? (low) : ((amt) > (high) ? (high) : (amt)))
 
-FocMotor::FocMotor(MT6816 *encoder, int pole_pairs, int u_gpio, int v_gpio, int w_gpio, int en_gpio)
+FocMotor::FocMotor(MT6835 *encoder, int pole_pairs, int u_gpio, int v_gpio, int w_gpio, int en_gpio)
     : encoder_(encoder), pole_pairs_(pole_pairs), en_gpio_(en_gpio) {
     // 初始化使能引脚
     gpio_config_t en_cfg = {};
@@ -27,22 +27,12 @@ FocMotor::FocMotor(MT6816 *encoder, int pole_pairs, int u_gpio, int v_gpio, int 
     ESP_ERROR_CHECK(gpio_config(&en_cfg));
     gpio_set_level((gpio_num_t) en_gpio_, 0); // 默认关闭
 
-    // 初始化 MCPWM
+    // 注册编码器故障回调：连续读取失败 ≥20 次时由编码器直接触发紧急停机
+    encoder_->register_fault_callback(encoder_fault_handler, this);
+
+    // 创建 FOC 任务
+    xTaskCreatePinnedToCore(foc_task, "foc_task", 4096, this, 20, &foc_task_handle_, 0);
     init_mcpwm(u_gpio, v_gpio, w_gpio);
-
-    // 注册 MCPWM on_empty 回调 (必须在 enable 之前)
-    mcpwm_timer_event_callbacks_t cbs = {};
-    cbs.on_empty = mcpwm_on_empty_cb;
-    ESP_ERROR_CHECK(mcpwm_timer_register_event_callbacks(timer_, &cbs, this));
-
-    // 启动 MCPWM 定时器
-    ESP_ERROR_CHECK(mcpwm_timer_enable(timer_));
-    ESP_ERROR_CHECK(mcpwm_timer_start_stop(timer_, MCPWM_TIMER_START_NO_STOP));
-
-    // 创建 FOC 任务 (高优先级, 绑核 1)
-    // CPU1 的 IDLE 看门狗默认关闭，适合实时忙等循环
-    xTaskCreatePinnedToCore(foc_task, "foc_task", 4096, this, 20, &foc_task_handle_, 1);
-
     ESP_LOGI(TAG, "FocMotor initialized. MCPWM %d Hz", FOC_MCPWM_TIMER_RESOLUTION_HZ / FOC_MCPWM_PERIOD);
 }
 
@@ -90,6 +80,15 @@ void FocMotor::init_mcpwm(int u, int v, int w) {
             )
         );
     }
+
+    // 注册 MCPWM on_empty 回调 (必须在 enable 之前)
+    mcpwm_timer_event_callbacks_t cbs = {};
+    cbs.on_full = mcpwm_on_full_cb;
+    ESP_ERROR_CHECK(mcpwm_timer_register_event_callbacks(timer_, &cbs, this));
+
+    // 启动 MCPWM 定时器
+    ESP_ERROR_CHECK(mcpwm_timer_enable(timer_));
+    ESP_ERROR_CHECK(mcpwm_timer_start_stop(timer_, MCPWM_TIMER_START_NO_STOP));
 }
 
 void FocMotor::park_inverse(float theta, float d, float q, float *alpha, float *beta) {
@@ -197,7 +196,7 @@ void FocMotor::set_dq_voltage(float ud, float uq, float e_theta) {
     set_pwm_duties(su, sv, sw);
 }
 
-bool FocMotor::mcpwm_on_empty_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx) {
+bool FocMotor::mcpwm_on_full_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx) {
     const auto *self = static_cast<FocMotor *>(user_ctx);
     BaseType_t high_task_woken = pdFALSE;
     if (self->foc_task_handle_) {
@@ -208,12 +207,10 @@ bool FocMotor::mcpwm_on_empty_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_e
 
 void FocMotor::foc_task(void *arg) {
     auto *self = static_cast<FocMotor *>(arg);
-    uint32_t error_count = 0;
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (!self->enabled_ || self->calibrating_) {
-            error_count = 0;
             continue;
         }
 
@@ -222,17 +219,17 @@ void FocMotor::foc_task(void *arg) {
         );
 
         if (std::isnan(e_theta)) {
-            error_count++;
-            if (error_count > 20) {
-                self->disable();
-                ESP_LOGE(TAG, "Encoder error (Parity/Magnet) > 20 times! Emergency Stop.");
-            }
-            continue;
+            continue; // 读取失败，不更新 PWM，沿用之前的输出
         }
 
-        error_count = 0;
         self->set_dq_voltage(self->ud_, self->direction_ * self->uq_, e_theta);
     }
+}
+
+void FocMotor::encoder_fault_handler(void *ctx) {
+    auto *self = static_cast<FocMotor *>(ctx);
+    ESP_LOGE(TAG, "Encoder offline! Consecutive failures >= 20. Emergency Stop.");
+    self->disable();
 }
 
 void FocMotor::set_voltage(float ud, float uq) {
