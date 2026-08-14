@@ -1,0 +1,19 @@
+# This file was generated using idf.py save-defconfig or menuconfig [D] key. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) 6.0.2 Project Minimal Configuration
+#
+# ===== FOC 实时性能优化 =====
+# 编译优化 -O2：让 spi_ll_write/read_buffer 等 inline 函数真正内联， 消除 memcpy 调用和冗余 memw 屏障
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# 比较器 set_compare_value 放入 IRAM，消除 FOC 循环内 flash 调用抖动
+CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y
+
+# FreeRTOS 内核函数放入 IRAM，降低 ulTaskNotifyTake 唤醒抖动
+CONFIG_FREERTOS_IN_IRAM=y
+
+# 允许在 Level 1 中断 (如 MCPWM ISR) 中使用硬件浮点指令，防止 FPU Panic
+CONFIG_FREERTOS_FPU_IN_ISR=y
+
+# 主频 240MHz
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
