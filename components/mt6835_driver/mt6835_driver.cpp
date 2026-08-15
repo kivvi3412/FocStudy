@@ -16,6 +16,8 @@
 static constexpr float PI_F = 3.14159265358979323846f;
 static constexpr float TWOPI_F = 2.0f * PI_F;
 static constexpr float ANGLE_TO_RAD = TWOPI_F / 65536.0f; // raw * ANGLE_TO_RAD = 单次 float 乘法
+static constexpr float ANGLE_TO_RAD_21 = TWOPI_F / 2097152.0f; // 21-bit 全精度: 2π/2²¹
+static constexpr uint32_t CAL_AVERAGE_COUNT = 30; // 0 电角度校准采样次数（30 × 2²¹ ≈ 6.3e7 < 2³²）
 
 static const char *TAG = "MT6835";
 
@@ -192,9 +194,9 @@ void MT6835::spi_burst_read(uint8_t *rx4) {
 }
 
 // ============================================================================
-// 读取 16-bit 角度值 + CRC8 校验 + 故障检测
+// 读取 21-bit 角度值 + CRC8 校验 + 故障检测
 // ============================================================================
-bool MT6835::read_angle(uint16_t &out_angle) {
+bool MT6835::read_angle21(uint32_t &out_angle) {
     uint8_t data[4]; // [reg03, reg04, reg05, reg06]
     spi_burst_read(data);
 
@@ -234,9 +236,24 @@ bool MT6835::read_angle(uint16_t &out_angle) {
     consecutive_errors_ = 0;
     fault_triggered_ = false;
 
-    // 21-bit 角度截取高 16 位: ANGLE[20:5] = (reg03 << 8) | reg04
-    // 分辨率 0~65535 对应 0°~360°
-    out_angle = ((uint16_t) data[0] << 8) | data[1];
+    // 21-bit 角度组合: ANGLE[20:0]
+    //   reg03 = ANGLE[20:13], reg04 = ANGLE[12:5], reg05 = ANGLE[4:0] | STATUS[2:0]
+    // 分辨率 0~2097151 对应 0°~360°
+    out_angle = ((uint32_t) data[0] << 13) | ((uint32_t) data[1] << 5) | ((uint32_t) data[2] >> 3);
+
+    return true;
+}
+
+// ============================================================================
+// 读取 16-bit 角度值（21-bit 截取高 16 位）+ CRC8 校验 + 故障检测
+// ============================================================================
+bool MT6835::read_angle(uint16_t &out_angle) {
+    uint32_t angle21;
+    if (!read_angle21(angle21)) {
+        return false;
+    }
+    // 21-bit 截取高 16 位: ANGLE[20:5]，0~65535 对应 0°~360°
+    out_angle = (uint16_t) (angle21 >> 5);
 
     return true;
 }
@@ -278,6 +295,24 @@ float MT6835::read_angle_no_update() {
         return NAN;
     }
     return (float) raw * ANGLE_TO_RAD;
+}
+
+float MT6835::read_angle21_30_no_update() {
+    // 30 次 21-bit 全精度采样，uint32 累加（30×(2²¹-1) ≈ 6.3e7，远小于 2³²）
+    // 先整数平均再转弧度，避免 float 累加时的低位舍入
+    uint32_t sum = 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < CAL_AVERAGE_COUNT; i++) {
+        uint32_t raw;
+        if (read_angle21(raw)) {
+            sum += raw;
+            count++;
+        }
+    }
+    if (count == 0) {
+        return NAN;
+    }
+    return ((float)sum / (float)count) * ANGLE_TO_RAD_21;
 }
 
 float MT6835::read_angle_raw() {

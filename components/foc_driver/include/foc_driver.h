@@ -60,7 +60,7 @@ private:
     int en_gpio_;
 
     float direction_{1.0f};
-    float zero_electric_angle_{0.0f};
+    volatile float zero_electric_angle_{0.0f}; // FOC 任务与校准/整定任务共享, 需 volatile
 
     volatile float ud_{0.0f};
     volatile float uq_{0.0f};
@@ -72,6 +72,25 @@ private:
     TaskHandle_t foc_task_handle_{nullptr};
 
     void init_mcpwm(int u, int v, int w);
+
+    /**
+     * @brief 以固定 |Uq| 正反转各跑一段并测平均转速差 (圈/s)
+     * @param test_uq 测试电压幅值
+     * @return 正转平均速度 − 反转平均速度；>0 表示正转更快
+     */
+    float measure_speed_diff(float test_uq);
+
+    /**
+     * @brief 方向检测（被 calibrate() 和 calibrate_direction() 共用）
+     */
+    void run_direction_detection();
+
+    /**
+     * @brief 双向锁定 + 动态对称整定（零电角度校准的通用流程）
+     *
+     * 被 calibrate() 调用。
+     */
+    void run_zero_calibration();
 
     void IRAM_ATTR set_pwm_duties(float su, float sv, float sw);
 

@@ -26,8 +26,8 @@ static void motor_init_task(void *arg) {
     );
 
     // 如果已经知道参数，可以跳过自动校准，直接设置：
-    // params->motor0->set_calibration_params(-1.0f, -83.07349396f);
-    params->motor0->calibrate();
+    params->motor0->set_calibration_params(-1.0f, 0.647268474f); // 接线:黑黄橘
+    // params->motor0->calibrate();
     params->motor0->enable(); // 校准完成后重新使能驱动
 
     // 通知主任务初始化完成
@@ -50,7 +50,7 @@ extern "C" void app_main() {
     ESP_LOGI(TAG, "FOC loop active in high-priority task - open loop voltage control (Ud/Uq: 0~%d)", FOC_MCPWM_OUTPUT_LIMIT);
 
     float params[2] = {0, 50}; // [Ud, Uq]
-    auto *console = new DebugConsole(params);
+    auto *console = new DebugConsole(params, init_params.mt6835);
     (void) console;
 
     while (true) {
