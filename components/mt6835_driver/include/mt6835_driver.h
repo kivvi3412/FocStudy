@@ -48,6 +48,18 @@ public:
     float IRAM_ATTR read_angle_no_update();
 
     /**
+     * @brief 21-bit 全精度读取 30 次并用 uint32 累加平均，不更新速度（用于 0 电角度校准）
+     *
+     * 与 read_angle_no_update() 的 16-bit 单次采样不同，本函数:
+     *   - 使用 ANGLE[20:0] 全部 21 位（分辨率 2π/2²¹，约 0.00017°/LSB）
+     *   - 30 次采样后先整数平均再转弧度，抑制单次读数的随机噪声（约 √30 ≈ 5.5×）
+     *   - 累计和最大 30×(2²¹-1) ≈ 6.3e7 < 2³²，uint32 足够，不会溢出
+     *
+     * @return 平均后的机械角度（弧度）[0, 2π)。全部读取失败返回 NAN。
+     */
+    float IRAM_ATTR read_angle21_30_no_update();
+
+    /**
      * @brief 读取机械角度（弧度），并更新速度和低通滤波
      * @return 机械角度 [0, 2π)。读取失败返回 NAN。
      */
@@ -131,6 +143,17 @@ private:
      * @param rx4 输出 4 字节: [reg03, reg04, reg05, reg06]
      */
     void IRAM_ATTR spi_burst_read(uint8_t *rx4);
+
+    /**
+     * @brief 读取 21-bit 角度值（ANGLE[20:0]）并校验 CRC8
+     *
+     * 流程: 连读 → CRC8 校验 → 状态检查 → 组合 ANGLE[20:0]
+     * 连续失败 ≥20 次触发注册的故障回调。
+     *
+     * @param out_angle 成功时输出 21-bit 角度值 [0, 2097151]
+     * @return 成功返回 true，CRC 错误或弱磁时返回 false
+     */
+    bool IRAM_ATTR read_angle21(uint32_t &out_angle);
 
     /**
      * @brief 读取 16-bit 角度值（21-bit 截取高 16 位）并校验 CRC8

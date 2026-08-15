@@ -6,24 +6,31 @@
 
 #include "esp_console.h"
 #include "esp_log.h"
+#include "mt6835_driver.h"
+
+static constexpr float PI_F = 3.14159265358979323846f;
+static constexpr float TWOPI_F = 2.0f * PI_F;
 
 
 struct {
     struct arg_dbl *ud = arg_dbln("d", "ud", "<float>", 0, 1, "设置 Ud (D轴电压)");
     struct arg_dbl *uq = arg_dbln("q", "uq", "<float>", 0, 1, "设置 Uq (Q轴电压)");
+    struct arg_lit *info = arg_lit0("i", "info", "显示当前电机速度(圈/s 圈/分)和CRC历史校验错误");
     struct arg_end *end = arg_end(20);
 } set_params_args;
 
 float *m_parm_list[2];
+MT6835 *m_encoder = nullptr;
 
-DebugConsole::DebugConsole(float parm_list[2]) {
+DebugConsole::DebugConsole(float parm_list[2], MT6835 *encoder) {
+    m_encoder = encoder;
     for (int j = 0; j < 2; j++) {
         m_parm_list[j] = &parm_list[j];
     }
 
     const esp_console_cmd_t cmd = {
         .command = "set",
-        .help = "设置开环电压 Ud/Uq (范围 0~1000)",
+        .help = "设置开环电压 Ud/Uq (范围 0~1000); -i/--info 显示速度与CRC错误",
         .hint = nullptr,
         .func = &DebugConsole::set_params_cmd,
         .argtable = &set_params_args,
@@ -65,6 +72,18 @@ int DebugConsole::set_params_cmd(int argc, char **argv) {
         return 1;
     }
 
+    if (set_params_args.info->count > 0) {
+        if (m_encoder) {
+            // get_velocity_filtered() 是机械角速度 (rad/s)，除以 2π 得圈/s，乘 60 得圈/分
+            float rev_s = m_encoder->get_velocity_filtered() / TWOPI_F;
+            float rev_min = rev_s * 60.0f;
+            printf("Speed: %+.3f rev/s (%+.1f RPM)\n", rev_s, rev_min);
+            printf("CRC errors: %lu (total since boot)\n", (unsigned long) m_encoder->get_total_crc_errors());
+        } else {
+            printf("encoder not initialized\n");
+        }
+    }
+
     if (set_params_args.ud->count > 0) {
         *m_parm_list[0] = (float) set_params_args.ud->dval[0];
     }
@@ -72,6 +91,8 @@ int DebugConsole::set_params_cmd(int argc, char **argv) {
         *m_parm_list[1] = (float) set_params_args.uq->dval[0];
     }
 
-    ESP_LOGI("set_parm", "Ud: %.2f, Uq: %.2f", *m_parm_list[0], *m_parm_list[1]);
+    if (set_params_args.ud->count > 0 || set_params_args.uq->count > 0) {
+        ESP_LOGI("set_parm", "Ud: %.2f, Uq: %.2f", *m_parm_list[0], *m_parm_list[1]);
+    }
     return 0;
 }
