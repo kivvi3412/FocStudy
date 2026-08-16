@@ -7,6 +7,8 @@
 #include "foc_driver.h"
 #include "project_conf.h"
 #include "mt6835_driver.h"
+#include "littlefs_module.h"
+#include "midi_player.h"
 
 static const char *TAG = "Main";
 
@@ -37,6 +39,8 @@ static void motor_init_task(void *arg) {
 }
 
 extern "C" void app_main() {
+    littleFS::init();
+
     MotorInitParams init_params = {nullptr, nullptr, xTaskGetCurrentTaskHandle()};
 
     // 在 Core 1 上创建初始化任务，以确保 MCPWM ISR 注册在 Core 1
@@ -48,6 +52,9 @@ extern "C" void app_main() {
     FocMotor *motor0 = init_params.motor0;
 
     ESP_LOGI(TAG, "FOC loop active in high-priority task - open loop voltage control (Ud/Uq: 0~%d)", FOC_MCPWM_OUTPUT_LIMIT);
+
+    // 播放一首歌：main 中只需写入 littlefs 内的 MIDI 文件名
+    midi_player_play(motor0, "Flower_Dance_DJ_Okawari.mid");
 
     float params[2] = {0, 50}; // [Ud, Uq]
     auto *console = new DebugConsole(params, init_params.mt6835);

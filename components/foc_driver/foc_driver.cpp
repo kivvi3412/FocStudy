@@ -230,7 +230,13 @@ void FocMotor::foc_task(void *arg) {
             continue; // 读取失败，不更新 PWM，沿用之前的输出
         }
 
-        self->set_dq_voltage(self->ud_, self->direction_ * self->uq_, e_theta);
+        float uq = self->direction_ * self->uq_;
+        MusicSampleFn music_fn = self->music_fn_;
+        if (music_fn) {
+            uq += music_fn();
+        }
+
+        self->set_dq_voltage(self->ud_, uq, e_theta);
     }
 }
 
@@ -245,6 +251,10 @@ void FocMotor::encoder_fault_handler(void *ctx) {
 void FocMotor::set_voltage(float ud, float uq) {
     ud_ = ud;
     uq_ = uq;
+}
+
+void FocMotor::set_music_source(MusicSampleFn fn) {
+    music_fn_ = fn;
 }
 
 float FocMotor::measure_speed_diff(float test_uq) {

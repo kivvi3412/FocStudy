@@ -13,6 +13,9 @@
 
 class FocMotor {
 public:
+    /** 音乐采样回调：每次 FOC 周期调用，返回注入 Uq 的电压增量 */
+    using MusicSampleFn = float (*)(void);
+
     /**
      * @brief 构造函数，初始化 MCPWM 硬件和引脚
      * @param encoder MT6835 编码器指针
@@ -51,6 +54,13 @@ public:
      */
     void set_voltage(float ud, float uq);
 
+    /**
+     * @brief 注册音乐采样回调（如 midi_player_sample）。
+     * 每次 FOC 周期在方向修正后叠加回调返回值到 Uq。
+     * 传 nullptr 可取消。
+     */
+    void set_music_source(MusicSampleFn fn);
+
     float get_direction() const { return direction_; }
     float get_zero_electric_angle() const { return zero_electric_angle_; }
 
@@ -64,6 +74,7 @@ private:
 
     volatile float ud_{0.0f};
     volatile float uq_{0.0f};
+    volatile MusicSampleFn music_fn_{nullptr};
     volatile bool enabled_{false};
     volatile bool calibrating_{false};
 

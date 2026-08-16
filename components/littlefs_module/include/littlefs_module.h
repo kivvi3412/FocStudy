@@ -6,7 +6,7 @@
 #define IN12_LITTLEFS_MODULE_H
 
 #include <string>
-#include "project_config.h"
+#include "project_conf.h"
 
 class littleFS {
 public:
