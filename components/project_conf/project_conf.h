@@ -38,4 +38,7 @@
 #define FOC_MCPWM_CALIBRATE_VOLTAGE (FOC_MCPWM_PERIOD / 20) // 校准电压 = 100
 #define FOC_LOW_PASS_FILTER_ALPHA 0.5f // 低通滤波: 0.5*当前 + 0.5*过去
 
+#define LITTLEFS_MOUNT_POINT     "/littlefs_root"
+#define LITTLEFS_PARTITION_LABEL "littlefs"
+
 #endif // FOCKNOB_PROJECT_CONF_H

@@ -2,3 +2,4 @@ build/
 .cache/
 .idea/
 sdkconfig
+managed_components/
