@@ -31,10 +31,6 @@ FocMotor::FocMotor(MT6835 *encoder, int pole_pairs, int u_gpio, int v_gpio, int 
     // 注册编码器故障回调：连续读取失败 ≥20 次时由编码器直接触发紧急停机
     encoder_->register_fault_callback(encoder_fault_handler, this);
 
-    // FOC 计算放在高优先级任务中，MCPWM ISR 只负责发通知
-    // 与 MCPWM ISR 同核 (Core 1)，减少跨核唤醒延迟
-    xTaskCreatePinnedToCore(foc_task, "foc_task", 4096, this, 20, &foc_task_handle_, 1);
-
     init_mcpwm(u_gpio, v_gpio, w_gpio);
     ESP_LOGI(TAG, "FocMotor initialized. MCPWM %d Hz", FOC_MCPWM_TIMER_RESOLUTION_HZ / FOC_MCPWM_PERIOD);
 }
@@ -205,33 +201,22 @@ void FocMotor::set_dq_voltage(float ud, float uq, float e_theta) {
 }
 
 bool FocMotor::mcpwm_on_full_cb(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx) {
-    const auto *self = static_cast<FocMotor *>(user_ctx); // ISR 只做触发/通知
-    BaseType_t high_task_woken = pdFALSE;
-    if (self->foc_task_handle_) {
-        vTaskNotifyGiveFromISR(self->foc_task_handle_, &high_task_woken);
+    auto *self = static_cast<FocMotor *>(user_ctx);
+
+    if (!self->enabled_ || self->calibrating_) {
+        return false;
     }
-    return high_task_woken;
-}
 
-void FocMotor::foc_task(void *arg) {
-    auto *self = static_cast<FocMotor *>(arg);
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    float e_theta = self->encoder_->read_electrical_angle_compensated(
+        self->pole_pairs_, self->direction_, self->zero_electric_angle_
+    );
 
-        if (!self->enabled_ || self->calibrating_) {
-            continue;
-        }
-
-        float e_theta = self->encoder_->read_electrical_angle_compensated(
-            self->pole_pairs_, self->direction_, self->zero_electric_angle_
-        );
-
-        if (std::isnan(e_theta)) {
-            continue; // 读取失败，不更新 PWM，沿用之前的输出
-        }
-
-        self->set_dq_voltage(self->ud_, self->direction_ * self->uq_, e_theta);
+    if (std::isnan(e_theta)) {
+        return false; // 读取失败，不更新 PWM，沿用之前的输出
     }
+
+    self->set_dq_voltage(self->ud_, self->direction_ * self->uq_, e_theta);
+    return false;
 }
 
 /// 编码器故障回调（由 MT6835 在连续读取失败时调用）

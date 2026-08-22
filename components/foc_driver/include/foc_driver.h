@@ -69,7 +69,6 @@ private:
 
     mcpwm_timer_handle_t timer_{nullptr};
     mcpwm_cmpr_handle_t comparators_[3]{};
-    TaskHandle_t foc_task_handle_{nullptr};
 
     void init_mcpwm(int u, int v, int w);
 
@@ -102,8 +101,6 @@ private:
 
     static bool IRAM_ATTR mcpwm_on_full_cb(
         mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx);
-
-    static void IRAM_ATTR foc_task(void *arg);
 
     static void IRAM_ATTR encoder_fault_handler(void *ctx);
 };
